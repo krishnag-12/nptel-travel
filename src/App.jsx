@@ -11,7 +11,9 @@ import {
   AlertCircle,
   Compass,
   Navigation,
-  Loader2
+  Loader2,
+  Phone,
+  MessageCircle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -86,7 +88,7 @@ export default function NPTELTravelApp() {
   useEffect(() => {
     if (!user) return;
 
-    // RULE 1: Strict Paths for Public Data
+    // Strict Paths for Public Data
     const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'travelRequests');
     
     const q = query(requestsRef);
@@ -200,6 +202,7 @@ function RequestForm({ user, onSuccess }) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    mobile: '', // NEW: Mobile number field added
     examCenter: '',
     examDate: '',
     examSlot: 'Forenoon'
@@ -230,11 +233,9 @@ function RequestForm({ user, onSuccess }) {
   // Fetch locations from OpenStreetMap (Nominatim API - 100% Free)
   useEffect(() => {
     const fetchLocations = async () => {
-      // Only search if length > 2 and we haven't already selected a place
       if (formData.examCenter.length > 2 && !placeId) {
         setIsSearchingLocation(true);
         try {
-          // Restricting to India (countrycodes=in)
           const response = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.examCenter)}&countrycodes=in&limit=5`
           );
@@ -252,7 +253,6 @@ function RequestForm({ user, onSuccess }) {
       }
     };
 
-    // Debounce the API call so we don't spam the free server
     const timeoutId = setTimeout(() => {
       fetchLocations();
     }, 600);
@@ -264,7 +264,7 @@ function RequestForm({ user, onSuccess }) {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
-    // If user edits text after selecting a location, remove the "Map Linked" status
+    // Remove map link if text is manually altered
     if (name === 'examCenter') {
       setPlaceId(null);
     }
@@ -272,7 +272,7 @@ function RequestForm({ user, onSuccess }) {
 
   const handleSuggestionClick = (suggestion) => {
     setFormData(prev => ({ ...prev, examCenter: suggestion.display_name }));
-    setPlaceId(suggestion.place_id.toString()); // Nominatim provides a unique ID too!
+    setPlaceId(suggestion.place_id.toString());
     setShowDropdown(false);
   };
 
@@ -288,13 +288,13 @@ function RequestForm({ user, onSuccess }) {
       await addDoc(requestsRef, {
         ...formData,
         userId: user.uid,
-        placeId: placeId, // Store the OSM Place ID in the database
+        placeId: placeId,
         createdAt: Date.now(),
         searchCenter: formData.examCenter.toLowerCase().trim()
       });
       
       setFormData({
-        name: '', email: '', examCenter: '', examDate: '', examSlot: 'Forenoon'
+        name: '', email: '', mobile: '', examCenter: '', examDate: '', examSlot: 'Forenoon'
       });
       setPlaceId(null);
       onSuccess();
@@ -323,20 +323,22 @@ function RequestForm({ user, onSuccess }) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300 block">Full Name</label>
-            <input 
-              required
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleInputChange}
-              placeholder="Alex Johnson"
-              className="w-full px-4 py-2.5 bg-[#0B0F19] border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-600 shadow-inner"
-            />
-          </div>
+        {/* Full Name */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-slate-300 block">Full Name</label>
+          <input 
+            required
+            type="text"
+            name="name"
+            value={formData.name}
+            onChange={handleInputChange}
+            placeholder="Alex Johnson"
+            className="w-full px-4 py-2.5 bg-[#0B0F19] border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-600 shadow-inner"
+          />
+        </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Email */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-300 block">Email Address</label>
             <input 
@@ -348,6 +350,25 @@ function RequestForm({ user, onSuccess }) {
               placeholder="alex@example.com"
               className="w-full px-4 py-2.5 bg-[#0B0F19] border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-600 shadow-inner"
             />
+          </div>
+
+          {/* Mobile Number */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300 block">Mobile Number (WhatsApp)</label>
+            <div className="relative">
+              <Phone className="w-5 h-5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input 
+                required
+                type="tel"
+                name="mobile"
+                value={formData.mobile}
+                onChange={handleInputChange}
+                placeholder="10-digit number"
+                pattern="[0-9]{10}"
+                title="Please enter a valid 10-digit mobile number"
+                className="w-full pl-10 pr-4 py-2.5 bg-[#0B0F19] border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-600 shadow-inner"
+              />
+            </div>
           </div>
         </div>
 
@@ -492,23 +513,15 @@ function Dashboard({ user, myRequests, allRequests, onNewRequest }) {
 function TripGroup({ request, allRequests, user }) {
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Matching Logic: Using OpenStreetMap Place ID for 100% exact matches
   const matches = useMemo(() => {
     return allRequests.filter(req => {
-      // 1. Don't match with yourself
       if (req.userId === user.uid) return false;
-      
-      // 2. Must be the same day and time
       if (req.examDate !== request.examDate) return false;
       if (req.examSlot !== request.examSlot) return false;
 
-      // 3. Center Matching:
-      // If both requests successfully linked a Map location, match based on the exact place ID
       if (req.placeId && request.placeId) {
         return req.placeId === request.placeId;
       }
-      
-      // Fallback: If one or both didn't use the map dropdown, fallback to raw text matching
       return req.searchCenter === request.searchCenter;
     });
   }, [allRequests, request, user.uid]);
@@ -573,7 +586,7 @@ function TripGroup({ request, allRequests, user }) {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {matches.map(match => (
               <MatchCard key={match.id} match={match} myRequest={request} />
             ))}
@@ -586,17 +599,30 @@ function TripGroup({ request, allRequests, user }) {
 
 // --- Card to display a matched user ---
 function MatchCard({ match, myRequest }) {
+  // Pre-fill Email
   const subject = encodeURIComponent(`NPTEL Travel Buddy: ${match.examCenter} on ${myRequest.examDate}`);
   const body = encodeURIComponent(
     `Hi ${match.name},\n\nI found your profile on NPTEL Travel Buddy. We both have an exam at the same center during the ${match.examSlot} slot on ${myRequest.examDate}.\n\nWould you be interested in coordinating travel together?\n\nBest regards,\n${myRequest.name}`
   );
-  
   const mailtoLink = `mailto:${match.email}?subject=${subject}&body=${body}`;
 
+  // Pre-fill WhatsApp (if mobile is provided)
+  let whatsappLink = null;
+  if (match.mobile) {
+    let cleanMobile = match.mobile.replace(/\D/g, ''); // Remove non-digits
+    if (cleanMobile.length === 10) cleanMobile = `91${cleanMobile}`; // Assume Indian code
+    
+    const whatsappBody = encodeURIComponent(
+      `Hi ${match.name}, I found you on NPTEL Travel Buddy! We both have an exam at the same center on ${myRequest.examDate} (${myRequest.examSlot}). Want to coordinate travel?`
+    );
+    whatsappLink = `https://wa.me/${cleanMobile}?text=${whatsappBody}`;
+  }
+
   return (
-    <div className="flex items-center justify-between p-4 bg-[#1F2937]/30 border border-slate-800 rounded-xl hover:border-indigo-500/40 hover:bg-[#1F2937]/80 transition-all duration-300 group">
+    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-[#1F2937]/30 border border-slate-800 rounded-xl hover:border-indigo-500/40 hover:bg-[#1F2937]/80 transition-all duration-300 group gap-4">
+      {/* User Info */}
       <div className="flex items-center gap-4">
-        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300 font-bold shadow-inner">
+        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300 font-bold shadow-inner flex-shrink-0">
           {match.name.charAt(0).toUpperCase()}
         </div>
         <div>
@@ -607,13 +633,28 @@ function MatchCard({ match, myRequest }) {
           </div>
         </div>
       </div>
-      <a 
-        href={mailtoLink}
-        className="flex items-center gap-2 bg-[#0B0F19] border border-slate-700 hover:border-indigo-500/50 text-slate-300 hover:text-indigo-300 text-sm font-medium py-2 px-4 rounded-lg transition-all shadow-sm group-hover:shadow-[0_0_10px_rgba(99,102,241,0.1)] flex-shrink-0"
-      >
-        <Mail className="w-4 h-4" />
-        <span className="hidden sm:inline">Contact</span>
-      </a>
+      
+      {/* Action Buttons */}
+      <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+        {whatsappLink && (
+          <a 
+            href={whatsappLink} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/20 text-emerald-400 text-sm font-medium py-2 px-3 rounded-lg transition-all"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span>WhatsApp</span>
+          </a>
+        )}
+        <a 
+          href={mailtoLink}
+          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#0B0F19] border border-slate-700 hover:border-indigo-500/50 text-slate-300 hover:text-indigo-300 text-sm font-medium py-2 px-3 rounded-lg transition-all shadow-sm group-hover:shadow-[0_0_10px_rgba(99,102,241,0.1)]"
+        >
+          <Mail className="w-4 h-4" />
+          <span>Email</span>
+        </a>
+      </div>
     </div>
   );
 }
