@@ -13,7 +13,9 @@ import {
   Navigation,
   Loader2,
   Phone,
-  MessageCircle
+  MessageCircle,
+  UploadCloud,
+  FileText
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -59,7 +61,7 @@ export default function NPTELTravelApp() {
   const [user, setUser] = useState(null);
   const [allRequests, setAllRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('my-trips'); // 'my-trips' | 'new-request'
+  const [activeTab, setActiveTab] = useState('my-trips'); 
 
   // --- Authentication Setup ---
   useEffect(() => {
@@ -88,9 +90,7 @@ export default function NPTELTravelApp() {
   useEffect(() => {
     if (!user) return;
 
-    // Strict Paths for Public Data
     const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'travelRequests');
-    
     const q = query(requestsRef);
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -124,9 +124,8 @@ export default function NPTELTravelApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] font-sans text-slate-200 selection:bg-indigo-500/30">
-      {/* Header */}
-      <header className="bg-[#0B0F19]/80 backdrop-blur-md border-b border-slate-800/60 sticky top-0 z-10">
+    <div className="min-h-screen bg-[#0B0F19] font-sans text-slate-200 selection:bg-indigo-500/30 relative">
+      <header className="bg-[#0B0F19]/90 backdrop-blur-md border-b border-slate-800/60 sticky top-0 z-50 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="bg-indigo-500/10 p-2 rounded-xl border border-indigo-500/20">
@@ -145,10 +144,7 @@ export default function NPTELTravelApp() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-8">
-        
-        {/* Navigation Tabs */}
         <div className="flex space-x-2 mb-8 bg-[#111827] p-1.5 rounded-xl shadow-lg border border-slate-800 w-fit">
           <button
             onClick={() => setActiveTab('my-trips')}
@@ -197,18 +193,16 @@ export default function NPTELTravelApp() {
 // 3. COMPONENTS
 // ==========================================
 
-// --- Form Component for creating new travel requests ---
 function RequestForm({ user, onSuccess }) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    mobile: '', // NEW: Mobile number field added
+    mobile: '', 
     examCenter: '',
     examDate: '',
     examSlot: 'Forenoon'
   });
   
-  // Custom Autocomplete State (OpenStreetMap)
   const [placeId, setPlaceId] = useState(null); 
   const [suggestions, setSuggestions] = useState([]);
   const [isSearchingLocation, setIsSearchingLocation] = useState(false);
@@ -217,9 +211,12 @@ function RequestForm({ user, onSuccess }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   
+  const [isParsingPDF, setIsParsingPDF] = useState(false);
+  const [pdfSuccess, setPdfSuccess] = useState('');
+  const fileInputRef = useRef(null);
+  
   const wrapperRef = useRef(null);
 
-  // Close dropdown if clicked outside
   useEffect(() => {
     function handleClickOutside(event) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
@@ -230,7 +227,6 @@ function RequestForm({ user, onSuccess }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Fetch locations from OpenStreetMap (Nominatim API - 100% Free)
   useEffect(() => {
     const fetchLocations = async () => {
       if (formData.examCenter.length > 2 && !placeId) {
@@ -263,17 +259,196 @@ function RequestForm({ user, onSuccess }) {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    
-    // Remove map link if text is manually altered
-    if (name === 'examCenter') {
-      setPlaceId(null);
-    }
+    if (name === 'examCenter') setPlaceId(null);
   };
 
   const handleSuggestionClick = (suggestion) => {
     setFormData(prev => ({ ...prev, examCenter: suggestion.display_name }));
     setPlaceId(suggestion.place_id.toString());
     setShowDropdown(false);
+  };
+
+  // --- PDF Parsing Logic (ULTRA ROBUST ALGORITHM) ---
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      setError("Please upload a valid PDF file.");
+      return;
+    }
+
+    setIsParsingPDF(true);
+    setError('');
+    setPdfSuccess('');
+
+    try {
+      // Safely inject PDF.js to avoid bundler resolution errors
+      if (!window.pdfjsLib) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          script.onload = () => {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            resolve();
+          };
+          script.onerror = () => reject(new Error("Failed to load PDF.js library"));
+          document.head.appendChild(script);
+        });
+      }
+
+      const pdfjsLib = window.pdfjsLib;
+      const arrayBuffer = await file.arrayBuffer();
+      
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      
+      const strings = [];
+      let fullText = '';
+      
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageStrings = textContent.items.map(item => item.str.trim()).filter(str => str.length > 0);
+        strings.push(...pageStrings);
+        fullText += pageStrings.join(' ') + ' ';
+      }
+
+      // Helper to identify standard NPTEL form labels
+      const knownLabels = [
+        "candidate name", "roll no", "seating number", "date of birth", "pwd status",
+        "compensatory time", "scribe required", "exam date", "reporting time",
+        "exam timing", "gate closure", "shift", "test centre name", "test center name",
+        "test centre address", "test center address", "nptel coordinator", "nptel exam",
+        "signature", "programme", "technology enhanced", "hall ticket", "instructions",
+        "candidate)", "session"
+      ];
+      const isLabel = (s) => knownLabels.some(l => s.toLowerCase().includes(l));
+
+      // 1. Extract Name
+      let foundName = '';
+      const rollNoIndex = strings.findIndex(s => s.startsWith('NOC') && s.length > 10);
+      if (rollNoIndex > 0) {
+        for(let i = rollNoIndex - 1; i >= 0; i--) {
+          const str = strings[i];
+          if(!isLabel(str)) {
+            foundName = str;
+            break;
+          } else if (str.toLowerCase().includes("candidate name") && str.length > 15) {
+            foundName = str.substring(str.toLowerCase().indexOf("candidate name") + 14).trim();
+            if (foundName) break;
+          }
+        }
+      }
+
+      // 2. Extract Exam Date (Fixed timezone drift issue)
+      let foundDate = '';
+      const dateRegexMatch = fullText.match(/\d{1,2}\s+[A-Za-z]+,?\s*\d{4}/);
+      if (dateRegexMatch) {
+        try {
+          const parsedDate = new Date(dateRegexMatch[0]);
+          if (!isNaN(parsedDate)) {
+            // Formatting manually prevents .toISOString() from returning yesterday's date
+            const yyyy = parsedDate.getFullYear();
+            const mm = String(parsedDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(parsedDate.getDate()).padStart(2, '0');
+            foundDate = `${yyyy}-${mm}-${dd}`;
+          }
+        } catch(err) {
+          console.warn("Could not parse date format", dateRegexMatch[0]);
+        }
+      }
+
+      // 3. Extract Exam Slot
+      let foundSlot = formData.examSlot;
+      const upperText = fullText.toUpperCase();
+      if (upperText.includes("FORENOON") || upperText.includes(" FN")) {
+        foundSlot = "Forenoon";
+      } else if (upperText.includes("AFTERNOON") || upperText.includes(" AN")) {
+        foundSlot = "Afternoon";
+      }
+
+      // 4. Extract Center Name
+      let foundCenter = '';
+      const tcNameIdx = strings.findIndex(s => s.toLowerCase().includes('test centre name') || s.toLowerCase().includes('test center name'));
+      const tcAddrIdx = strings.findIndex(s => s.toLowerCase().includes('test centre address') || s.toLowerCase().includes('test center address'));
+      
+      if (tcNameIdx !== -1) {
+        // Strategy A: Check if the value is attached to the label string itself (Fragmented PDFs)
+        const labelStr = strings[tcNameIdx];
+        const lowerLabel = labelStr.toLowerCase();
+        const labelText = lowerLabel.includes('test centre name') ? 'test centre name' : 'test center name';
+        const leftover = labelStr.substring(lowerLabel.indexOf(labelText) + labelText.length).trim();
+        
+        if (leftover.length > 4 && !isLabel(leftover)) {
+          foundCenter = leftover;
+        }
+        
+        // Strategy B: Sandwiched visually between Name and Address labels
+        if (!foundCenter && tcAddrIdx > tcNameIdx) {
+          const inBetween = strings.slice(tcNameIdx + 1, tcAddrIdx)
+            .map(s => s.trim())
+            .filter(s => s.length > 4 && !isLabel(s));
+          if (inBetween.length > 0) {
+            foundCenter = inBetween.join(', ');
+          }
+        }
+        
+        // Strategy C: Forward scan, skipping known non-center items (Handles scrambled table layouts)
+        if (!foundCenter) {
+          for (let i = tcNameIdx + 1; i < strings.length; i++) {
+            const nextStr = strings[i].trim();
+            
+            // Smart filters to ensure we only grab the true Center Name
+            const isTooShort = nextStr.length <= 4;
+            const lacksLetters = !(/[a-zA-Z]{3,}/.test(nextStr));
+            const isMatchedName = foundName && nextStr.toLowerCase() === foundName.toLowerCase();
+            const isRollNo = nextStr.toUpperCase().startsWith('NOC');
+            const isTime = /^\d{2}:\d{2}\s*[ap]m$/i.test(nextStr);
+            const isDate = nextStr.includes('202'); // Basic skip for dates
+            
+            if (!isLabel(nextStr) && !isTooShort && !lacksLetters && !isMatchedName && !isRollNo && !isTime && !isDate) {
+              foundCenter = nextStr;
+              break;
+            }
+          }
+        }
+      }
+      
+      // Strategy D: Keyword heuristic fallback (Super robust for NPTEL)
+      // If the extracted center doesn't look like a real center name, search the entire PDF for one!
+      const centerKeywords = ['college', 'institute', 'university', 'academy', 'school', 'tcs', 'digital zone', 'engineering', 'polytechnic'];
+      const looksLikeCenter = foundCenter && centerKeywords.some(kw => foundCenter.toLowerCase().includes(kw));
+      
+      if (!looksLikeCenter) {
+        const fallbackCenter = strings.find(s => {
+           const lower = s.toLowerCase();
+           return centerKeywords.some(kw => lower.includes(kw)) && !isLabel(s) && s.length > 5 && s.length < 80;
+        });
+        if (fallbackCenter) foundCenter = fallbackCenter;
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        name: foundName || prev.name,
+        examDate: foundDate || prev.examDate,
+        examSlot: foundSlot,
+        examCenter: foundCenter || prev.examCenter
+      }));
+      setPlaceId(null); 
+
+      if (foundName || foundCenter || foundDate) {
+        setPdfSuccess("Hall ticket successfully scanned! Please verify the details below.");
+      } else {
+        setError("Could not read details from this PDF. Please enter manually.");
+      }
+
+    } catch (err) {
+      console.error("PDF Parsing Error: ", err);
+      setError("Error reading the PDF. Please try checking your internet connection, or enter details manually.");
+    } finally {
+      setIsParsingPDF(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -297,6 +472,7 @@ function RequestForm({ user, onSuccess }) {
         name: '', email: '', mobile: '', examCenter: '', examDate: '', examSlot: 'Forenoon'
       });
       setPlaceId(null);
+      setPdfSuccess('');
       onSuccess();
     } catch (err) {
       console.error("Error adding document: ", err);
@@ -315,15 +491,49 @@ function RequestForm({ user, onSuccess }) {
         <p className="text-slate-400 mt-2 text-sm">We'll match you with others heading to the same center at the exact same time.</p>
       </div>
 
+      <div className="mb-8 relative z-10">
+        <label 
+          className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+            isParsingPDF ? 'border-indigo-500 bg-indigo-500/5' : 'border-slate-700 hover:border-indigo-500/50 hover:bg-[#1F2937]/50 bg-[#0B0F19]'
+          }`}
+        >
+          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+            {isParsingPDF ? (
+              <Loader2 className="w-8 h-8 text-indigo-400 animate-spin mb-3" />
+            ) : (
+              <UploadCloud className="w-8 h-8 text-slate-400 mb-3" />
+            )}
+            <p className="mb-1 text-sm text-slate-300">
+              <span className="font-semibold text-indigo-400">Click to upload</span> your Hall Ticket PDF
+            </p>
+            <p className="text-xs text-slate-500">Auto-fill Name, Center, and Date to save time</p>
+          </div>
+          <input 
+            type="file" 
+            className="hidden" 
+            accept="application/pdf"
+            onChange={handleFileUpload}
+            ref={fileInputRef}
+            disabled={isParsingPDF}
+          />
+        </label>
+      </div>
+
       {error && (
-        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl flex items-center gap-3">
+        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl flex items-center gap-3 relative z-10">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <p className="text-sm">{error}</p>
         </div>
       )}
 
+      {pdfSuccess && (
+        <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl flex items-center gap-3 relative z-10">
+          <FileText className="w-5 h-5 flex-shrink-0" />
+          <p className="text-sm">{pdfSuccess}</p>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
-        {/* Full Name */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-slate-300 block">Full Name</label>
           <input 
@@ -338,7 +548,6 @@ function RequestForm({ user, onSuccess }) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Email */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-300 block">Email Address</label>
             <input 
@@ -352,7 +561,6 @@ function RequestForm({ user, onSuccess }) {
             />
           </div>
 
-          {/* Mobile Number */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-300 block">Mobile Number (WhatsApp)</label>
             <div className="relative">
@@ -372,7 +580,6 @@ function RequestForm({ user, onSuccess }) {
           </div>
         </div>
 
-        {/* Custom Exam Center Autocomplete */}
         <div className="space-y-2" ref={wrapperRef}>
           <label className="text-sm font-medium text-slate-300 flex items-center justify-between">
             <span>NPTEL Exam Center Name / City</span>
@@ -402,7 +609,6 @@ function RequestForm({ user, onSuccess }) {
           </div>
           <p className="text-xs text-slate-500 mt-1">Select from the dropdown to ensure exact matches with others.</p>
           
-          {/* Custom Dropdown Menu */}
           {showDropdown && suggestions.length > 0 && (
             <ul className="absolute z-50 w-full mt-1 bg-[#1F2937] border border-slate-700 rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
               {suggestions.map((suggestion) => (
@@ -540,7 +746,6 @@ function TripGroup({ request, allRequests, user }) {
 
   return (
     <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden">
-      {/* Trip Header / Details */}
       <div className="bg-[#1F2937]/50 border-b border-slate-800 p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div className="flex items-center gap-2 text-white font-semibold mb-1.5 text-lg">
@@ -568,7 +773,6 @@ function TripGroup({ request, allRequests, user }) {
         </button>
       </div>
 
-      {/* Matches Section */}
       <div className="p-6">
         <div className="flex items-center gap-3 mb-5">
           <h3 className="text-sm font-medium text-slate-300 uppercase tracking-wider">
@@ -597,20 +801,17 @@ function TripGroup({ request, allRequests, user }) {
   );
 }
 
-// --- Card to display a matched user ---
 function MatchCard({ match, myRequest }) {
-  // Pre-fill Email
   const subject = encodeURIComponent(`NPTEL Travel Buddy: ${match.examCenter} on ${myRequest.examDate}`);
   const body = encodeURIComponent(
     `Hi ${match.name},\n\nI found your profile on NPTEL Travel Buddy. We both have an exam at the same center during the ${match.examSlot} slot on ${myRequest.examDate}.\n\nWould you be interested in coordinating travel together?\n\nBest regards,\n${myRequest.name}`
   );
   const mailtoLink = `mailto:${match.email}?subject=${subject}&body=${body}`;
 
-  // Pre-fill WhatsApp (if mobile is provided)
   let whatsappLink = null;
   if (match.mobile) {
-    let cleanMobile = match.mobile.replace(/\D/g, ''); // Remove non-digits
-    if (cleanMobile.length === 10) cleanMobile = `91${cleanMobile}`; // Assume Indian code
+    let cleanMobile = match.mobile.replace(/\D/g, ''); 
+    if (cleanMobile.length === 10) cleanMobile = `91${cleanMobile}`; 
     
     const whatsappBody = encodeURIComponent(
       `Hi ${match.name}, I found you on NPTEL Travel Buddy! We both have an exam at the same center on ${myRequest.examDate} (${myRequest.examSlot}). Want to coordinate travel?`
@@ -620,7 +821,6 @@ function MatchCard({ match, myRequest }) {
 
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-[#1F2937]/30 border border-slate-800 rounded-xl hover:border-indigo-500/40 hover:bg-[#1F2937]/80 transition-all duration-300 group gap-4">
-      {/* User Info */}
       <div className="flex items-center gap-4">
         <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300 font-bold shadow-inner flex-shrink-0">
           {match.name.charAt(0).toUpperCase()}
@@ -634,7 +834,6 @@ function MatchCard({ match, myRequest }) {
         </div>
       </div>
       
-      {/* Action Buttons */}
       <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
         {whatsappLink && (
           <a 
