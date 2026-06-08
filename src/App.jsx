@@ -34,6 +34,9 @@ import {
   doc
 } from 'firebase/firestore';
 
+// Uncomment the following line in your local VS Code environment to enable Vercel Analytics:
+// import { Analytics } from '@vercel/analytics/react';
+
 // ==========================================
 // 1. BACKEND & FIREBASE CONFIGURATION
 // ==========================================
@@ -185,6 +188,10 @@ export default function NPTELTravelApp() {
         )}
 
       </main>
+
+      {/* Uncomment the line below in your local VS Code environment to enable Vercel Analytics */}
+      {/* <Analytics /> */}
+
     </div>
   );
 }
