@@ -31,10 +31,15 @@ import {
   onSnapshot, 
   query, 
   deleteDoc,
-  doc
+  doc,
+  setDoc
 } from 'firebase/firestore';
 
 import { Analytics } from '@vercel/analytics/react';
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { useNotifications } from './hooks/useNotifications';
+import { NotificationCenter } from './components/NotificationCenter';
+import { NotificationPreferences } from './components/NotificationPreferences';
 
 // ==========================================
 // 1. BACKEND & FIREBASE CONFIGURATION
@@ -64,6 +69,9 @@ export default function NPTELTravelApp() {
   const [allRequests, setAllRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('my-trips'); 
+  const [showPreferences, setShowPreferences] = useState(false);
+
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications(db, user);
 
   // --- Authentication Setup ---
   useEffect(() => {
@@ -80,9 +88,19 @@ export default function NPTELTravelApp() {
     };
     initAuth();
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) setLoading(false);
+      if (currentUser) {
+        try {
+          await setDoc(doc(db, 'users', currentUser.uid), {
+            lastLogin: Date.now()
+          }, { merge: true });
+        } catch (e) {
+          console.error("Error creating user doc:", e);
+        }
+      } else {
+        setLoading(false);
+      }
     });
 
     return () => unsubscribe();
@@ -137,11 +155,22 @@ export default function NPTELTravelApp() {
               NPTEL Travel Buddy
             </h1>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-            <span className="text-slate-400 text-sm hidden sm:inline">
-              {user ? 'Secure connection' : 'Connecting...'}
-            </span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+              <span className="text-slate-400 text-sm hidden sm:inline">
+                {user ? 'Secure connection' : 'Connecting...'}
+              </span>
+            </div>
+            {user && (
+              <NotificationCenter 
+                notifications={notifications}
+                unreadCount={unreadCount}
+                markAsRead={markAsRead}
+                markAllAsRead={markAllAsRead}
+                onOpenPreferences={() => setShowPreferences(true)}
+              />
+            )}
           </div>
         </div>
       </header>
@@ -187,6 +216,14 @@ export default function NPTELTravelApp() {
         )}
 
       </main>
+
+      {showPreferences && (
+        <NotificationPreferences 
+          db={db}
+          user={user}
+          onClose={() => setShowPreferences(false)}
+        />
+      )}
 
       <Analytics />
 
@@ -463,10 +500,28 @@ function RequestForm({ user, onSuccess }) {
     setIsSubmitting(true);
     setError('');
 
+    let normalizedPhone = formData.mobile;
+    if (formData.mobile) {
+      try {
+        const phoneNumber = parsePhoneNumberFromString(formData.mobile, 'IN');
+        if (!phoneNumber || !phoneNumber.isValid()) {
+          setError("Please enter a valid mobile number.");
+          setIsSubmitting(false);
+          return;
+        }
+        normalizedPhone = phoneNumber.format('E.164');
+      } catch (err) {
+        setError("Invalid phone number format.");
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
     try {
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'travelRequests');
       await addDoc(requestsRef, {
         ...formData,
+        mobile: normalizedPhone,
         userId: user.uid,
         placeId: placeId,
         createdAt: Date.now(),
