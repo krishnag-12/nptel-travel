@@ -14,6 +14,34 @@ NPTEL Travel Buddy is a web application designed to help NPTEL exam candidates f
 - **Phone Validation:** Strict E.164 phone number validation to ensure smooth SMS delivery.
 - **Secure Data Access:** Strict Firestore Security Rules ensure data is only readable/writable by the authenticated owners.
 
+## How to Use (Step-by-Step Guide)
+
+### 1. The Homepage & Authentication
+When you first load the app, you are greeted with a secure, animated landing page. Authentication is handled seamlessly in the background to ensure your data remains private.
+> *(Place your screenshot at `docs/images/homepage.png`)*
+> ![Homepage Screenshot](./docs/images/homepage.png)
+
+### 2. Add Your Travel Request
+Click on **"New Travel Request"** or upload your NPTEL Hall Ticket PDF. The smart parser will automatically extract your:
+- Exam Date
+- Exam Slot (e.g., Morning/Afternoon)
+- Exam Center Name
+> *(Place your screenshot at `docs/images/upload-request.png`)*
+> ![Upload Request Screenshot](./docs/images/upload-request.png)
+
+### 3. Automatic Matching
+Once your request is submitted, the backend Firebase Cloud Functions immediately scan the database for other users heading to the same center at the same time. If an overlap is found, a `Match` is securely created.
+
+### 4. Notifications & Preferences
+When a match is found, you will immediately see a red notification badge on the bell icon in the top right corner.
+Clicking the bell opens your **Notification Center**.
+> *(Place your screenshot at `docs/images/notification-center.png`)*
+> ![Notification Center Screenshot](./docs/images/notification-center.png)
+
+You can also customize how you want to be notified (Email, SMS, or In-App only) by clicking **"Notification Settings"** at the bottom of the page.
+> *(Place your screenshot at `docs/images/preferences.png`)*
+> ![Preferences Screenshot](./docs/images/preferences.png)
+
 ## Technology Stack
 
 - **Frontend:** React 19, Vite, Tailwind CSS, Lucide React
