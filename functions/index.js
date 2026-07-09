@@ -1,4 +1,4 @@
-const functions = require("firebase-functions");
+const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 
@@ -9,8 +9,8 @@ const db = admin.firestore();
 const mailTransport = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: functions.config().email ? functions.config().email.user : "test@example.com",
-    pass: functions.config().email ? functions.config().email.pass : "test",
+    user: process.env.EMAIL_USER || "test@example.com",
+    pass: process.env.EMAIL_PASS || "test",
   },
 });
 
