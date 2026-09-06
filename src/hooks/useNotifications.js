@@ -2,13 +2,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, orderBy, doc, updateDoc, writeBatch } from 'firebase/firestore';
 
 export function useNotifications(db, user) {
+  const isReady = !!(user && db);
   const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isReady);
 
   useEffect(() => {
     if (!user || !db) {
-      setNotifications([]);
-      setLoading(false);
       return;
     }
 

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+/* global __app_id, __initial_auth_token */
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   MapPin, 
   Calendar, 
@@ -395,7 +396,7 @@ function RequestForm({ user, onSuccess }) {
             const dd = String(parsedDate.getDate()).padStart(2, '0');
             foundDate = `${yyyy}-${mm}-${dd}`;
           }
-        } catch(err) {
+        } catch {
           console.warn("Could not parse date format", dateRegexMatch[0]);
         }
       }
@@ -510,7 +511,7 @@ function RequestForm({ user, onSuccess }) {
           return;
         }
         normalizedPhone = phoneNumber.format('E.164');
-      } catch (err) {
+      } catch {
         setError("Invalid phone number format.");
         setIsSubmitting(false);
         return;
@@ -632,8 +633,7 @@ function RequestForm({ user, onSuccess }) {
                 value={formData.mobile}
                 onChange={handleInputChange}
                 placeholder="10-digit number"
-                pattern="[0-9]{10}"
-                title="Please enter a valid 10-digit mobile number"
+                title="Please enter a valid mobile number"
                 className="w-full pl-10 pr-4 py-2.5 bg-[#0B0F19] border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-600 shadow-inner"
               />
             </div>

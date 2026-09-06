@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Check, Trash2, Settings, ExternalLink } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Bell, Settings } from 'lucide-react';
 
 export function NotificationCenter({ notifications, unreadCount, markAsRead, markAllAsRead, onOpenPreferences }) {
   const [isOpen, setIsOpen] = useState(false);

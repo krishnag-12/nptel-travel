@@ -6,6 +6,7 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // Note: Replace with actual SMTP config or use Firebase Extensions in production.
+// eslint-disable-next-line no-unused-vars
 const mailTransport = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -111,7 +112,7 @@ exports.dispatchNotificationWorker = functions.firestore
     if (!change.after.exists) return null;
     
     const task = change.after.data();
-    const queueId = context.params.queueId;
+    const _queueId = context.params.queueId;
     
     if (task.status !== "PENDING") return null;
 
@@ -162,7 +163,7 @@ exports.dispatchNotificationWorker = functions.firestore
         try {
           // Uncomment and mock actual delivery delay in a real scenario
           // await mailTransport.sendMail(mailOptions);
-          console.log(`Mock Email sent to ${userData.email}`);
+          console.log(`Mock Email sent to ${mailOptions.to}`);
           await db.collection("emailLogs").add({
             userId: task.userId,
             matchId: task.matchId,

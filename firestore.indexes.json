@@ -1,4 +1,38 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "travelRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "examDate", "order": "ASCENDING" },
+        { "fieldPath": "examSlot", "order": "ASCENDING" },
+        { "fieldPath": "placeId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "travelRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "examDate", "order": "ASCENDING" },
+        { "fieldPath": "examSlot", "order": "ASCENDING" },
+        { "fieldPath": "searchCenter", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "travelRequests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }
