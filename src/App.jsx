@@ -538,7 +538,7 @@ function RequestForm({ user, onSuccess }) {
       // Query for other requests with the same examDate + examSlot + center
       // Always match by searchCenter (text-based, reliable)
       // placeId from Nominatim is NOT stable across different API calls
-      matchQuery = query(
+      const matchQuery = query(
         requestsRef,
         where('examDate', '==', formData.examDate),
         where('examSlot', '==', formData.examSlot),
