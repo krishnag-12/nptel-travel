@@ -33,7 +33,11 @@ import {
   query, 
   deleteDoc,
   doc,
-  setDoc
+  setDoc,
+  getDocs,
+  where,
+  writeBatch,
+  serverTimestamp
 } from 'firebase/firestore';
 
 import { Analytics } from '@vercel/analytics/react';
@@ -520,20 +524,91 @@ function RequestForm({ user, onSuccess }) {
 
     try {
       const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'travelRequests');
-      await addDoc(requestsRef, {
+      const newRequestData = {
         ...formData,
         mobile: normalizedPhone,
         userId: user.uid,
         placeId: placeId,
         createdAt: Date.now(),
         searchCenter: formData.examCenter.toLowerCase().trim()
+      };
+      const newDocRef = await addDoc(requestsRef, newRequestData);
+
+      // --- Frontend Matching Logic ---
+      // Query for other requests with the same examDate + examSlot + center
+      let matchQuery;
+      if (placeId) {
+        matchQuery = query(
+          requestsRef,
+          where('examDate', '==', formData.examDate),
+          where('examSlot', '==', formData.examSlot),
+          where('placeId', '==', placeId)
+        );
+      } else {
+        matchQuery = query(
+          requestsRef,
+          where('examDate', '==', formData.examDate),
+          where('examSlot', '==', formData.examSlot),
+          where('searchCenter', '==', formData.examCenter.toLowerCase().trim())
+        );
+      }
+
+      const matchSnapshot = await getDocs(matchQuery);
+      let matchCount = 0;
+
+      const batch = writeBatch(db);
+
+      matchSnapshot.forEach((matchDoc) => {
+        const matchData = matchDoc.data();
+        // Skip our own request
+        if (matchDoc.id === newDocRef.id || matchData.userId === user.uid) return;
+
+        // Create a deterministic match ID to prevent duplicates
+        const sortedIds = [user.uid, matchData.userId].sort();
+        const matchId = `${sortedIds[0]}_${sortedIds[1]}_${formData.examDate}`;
+
+        const matchRef = doc(db, 'matches', matchId);
+        batch.set(matchRef, {
+          userIds: [user.uid, matchData.userId],
+          requestIds: [newDocRef.id, matchDoc.id],
+          examDate: formData.examDate,
+          examSlot: formData.examSlot,
+          examCenter: formData.examCenter,
+          createdAt: serverTimestamp(),
+        }, { merge: true });
+
+        // Create notification for the OTHER user
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
+          userId: matchData.userId,
+          matchId: matchId,
+          type: 'NEW_MATCH',
+          title: 'New Travel Partner Found!',
+          message: `${formData.name} is also heading to ${formData.examCenter} on ${formData.examDate} (${formData.examSlot}). Reach out and coordinate!`,
+          createdAt: serverTimestamp(),
+          read: false,
+          createdBy: user.uid,
+        });
+
+        matchCount++;
       });
+
+      if (matchCount > 0) {
+        await batch.commit();
+      }
       
       setFormData({
         name: '', email: '', mobile: '', examCenter: '', examDate: '', examSlot: 'Forenoon'
       });
       setPlaceId(null);
       setPdfSuccess('');
+
+      if (matchCount > 0) {
+        alert(`🎉 ${matchCount} travel partner${matchCount > 1 ? 's' : ''} found! Check 'My Trips & Matches' to see them.`);
+      } else {
+        alert('✅ Request saved! We\'ll show matches as soon as someone else registers for the same center and slot.');
+      }
+
       onSuccess();
     } catch (err) {
       console.error("Error adding document: ", err);
