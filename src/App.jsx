@@ -536,22 +536,14 @@ function RequestForm({ user, onSuccess }) {
 
       // --- Frontend Matching Logic ---
       // Query for other requests with the same examDate + examSlot + center
-      let matchQuery;
-      if (placeId) {
-        matchQuery = query(
-          requestsRef,
-          where('examDate', '==', formData.examDate),
-          where('examSlot', '==', formData.examSlot),
-          where('placeId', '==', placeId)
-        );
-      } else {
-        matchQuery = query(
-          requestsRef,
-          where('examDate', '==', formData.examDate),
-          where('examSlot', '==', formData.examSlot),
-          where('searchCenter', '==', formData.examCenter.toLowerCase().trim())
-        );
-      }
+      // Always match by searchCenter (text-based, reliable)
+      // placeId from Nominatim is NOT stable across different API calls
+      matchQuery = query(
+        requestsRef,
+        where('examDate', '==', formData.examDate),
+        where('examSlot', '==', formData.examSlot),
+        where('searchCenter', '==', formData.examCenter.toLowerCase().trim())
+      );
 
       const matchSnapshot = await getDocs(matchQuery);
       let matchCount = 0;
@@ -860,8 +852,9 @@ function TripGroup({ request, allRequests, user }) {
       if (req.examDate !== request.examDate) return false;
       if (req.examSlot !== request.examSlot) return false;
 
-      if (req.placeId && request.placeId) {
-        return req.placeId === request.placeId;
+      // Try placeId first, then fall back to searchCenter
+      if (req.placeId && request.placeId && req.placeId === request.placeId) {
+        return true;
       }
       return req.searchCenter === request.searchCenter;
     });
