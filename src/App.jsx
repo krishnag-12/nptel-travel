@@ -45,6 +45,7 @@ import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { useNotifications } from './hooks/useNotifications';
 import { NotificationCenter } from './components/NotificationCenter';
 import { NotificationPreferences } from './components/NotificationPreferences';
+import { sendMatchNotificationsToAutocrat } from './services/autocratNotification';
 
 // ==========================================
 // 1. BACKEND & FIREBASE CONFIGURATION
@@ -549,6 +550,7 @@ function RequestForm({ user, onSuccess }) {
       let matchCount = 0;
 
       const batch = writeBatch(db);
+      const autocratEvents = [];
 
       matchSnapshot.forEach((matchDoc) => {
         const matchData = matchDoc.data();
@@ -582,11 +584,41 @@ function RequestForm({ user, onSuccess }) {
           createdBy: user.uid,
         });
 
+        // Event 1: Notify the other user about the new user
+        autocratEvents.push({
+          recipientName: matchData.name,
+          recipientEmail: matchData.email,
+          recipientMobile: matchData.mobile,
+          partnerName: formData.name,
+          partnerEmail: formData.email,
+          partnerMobile: normalizedPhone,
+          examCenter: formData.examCenter,
+          examDate: formData.examDate,
+          examSlot: formData.examSlot,
+        });
+
+        // Event 2: Notify the new user about the other user
+        autocratEvents.push({
+          recipientName: formData.name,
+          recipientEmail: formData.email,
+          recipientMobile: normalizedPhone,
+          partnerName: matchData.name,
+          partnerEmail: matchData.email,
+          partnerMobile: matchData.mobile,
+          examCenter: formData.examCenter,
+          examDate: formData.examDate,
+          examSlot: formData.examSlot,
+        });
+
         matchCount++;
       });
 
       if (matchCount > 0) {
         await batch.commit();
+        // Send email notifications via Autocrat / Google Sheets webhook (from expertszone4@gmail.com)
+        sendMatchNotificationsToAutocrat(autocratEvents).catch((err) => {
+          console.warn("[Autocrat] Non-blocking dispatch warning:", err);
+        });
       }
       
       setFormData({
