@@ -27,10 +27,18 @@
  * - Set up a job that uses the "Travel_Matches" sheet.
  * - Use the merge tags: <<Recipient Name>>, <<Partner Name>>, <<Exam Center>>, <<Exam Date>>, <<Exam Slot>>.
  * =========================================================================
- */
+// OPTIONAL: If you create this script directly at script.google.com (standalone project),
+// paste your Google Sheet URL or ID below. If opened via Extensions > Apps Script, leave it blank.
+const SPREADSHEET_ID_OR_URL = "";
 
 function setupSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let ss;
+  if (SPREADSHEET_ID_OR_URL && SPREADSHEET_ID_OR_URL.trim() !== "") {
+    const target = SPREADSHEET_ID_OR_URL.trim();
+    ss = target.startsWith("http") ? SpreadsheetApp.openByUrl(target) : SpreadsheetApp.openById(target);
+  } else {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+  }
   let sheet = ss.getSheetByName("Travel_Matches");
   if (!sheet) {
     sheet = ss.insertSheet("Travel_Matches");
