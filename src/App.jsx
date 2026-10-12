@@ -237,6 +237,42 @@ export default function NPTELTravelApp() {
   );
 }
 
+// --- Helper: Robust Center Matching (Exact, Place ID, Substrings, Key Venue Overlap) ---
+function isCenterMatch(center1, center2, placeId1, placeId2) {
+  if (!center1 || !center2) return false;
+  const c1 = center1.toLowerCase().trim();
+  const c2 = center2.toLowerCase().trim();
+
+  // 1. Exact match
+  if (c1 === c2) return true;
+
+  // 2. Stable Map place ID match
+  if (placeId1 && placeId2 && placeId1 !== 'custom' && placeId2 !== 'custom' && placeId1 === placeId2) {
+    return true;
+  }
+
+  // 3. Substring containment (e.g. "bitbytech solutions" in "bitbytech solutions, peenya 1st stage, bengaluru")
+  if (c1.includes(c2) || c2.includes(c1)) {
+    return true;
+  }
+
+  // 4. Overlap of key venue words (e.g. "bitbytech")
+  const stopWords = new Set([
+    'college', 'institute', 'university', 'technology', 'technologies', 'engineering',
+    'centre', 'center', 'digital', 'zone', 'road', 'campus', 'stage', 'bengaluru',
+    'bangalore', 'delhi', 'mumbai', 'chennai', 'hyderabad', 'kolkata', 'pune',
+    'solutions', 'pvt', 'ltd', 'near', 'opp', 'station', '1st', '2nd', '3rd', 'india'
+  ]);
+  const words1 = c1.split(/[\s,.-]+/).filter(w => w.length > 3);
+  const words2 = c2.split(/[\s,.-]+/).filter(w => w.length > 3);
+  const distinctiveOverlap = words1.filter(w => words2.includes(w) && !stopWords.has(w));
+  if (distinctiveOverlap.length > 0) {
+    return true;
+  }
+
+  return false;
+}
+
 // ==========================================
 // 3. COMPONENTS
 // ==========================================
@@ -277,14 +313,31 @@ function RequestForm({ user, onSuccess }) {
 
   useEffect(() => {
     const fetchLocations = async () => {
-      if (formData.examCenter.length > 2 && !placeId) {
+      const queryText = formData.examCenter.trim();
+      if (queryText.length > 2 && placeId !== 'custom') {
         setIsSearchingLocation(true);
         try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.examCenter)}&countrycodes=in&limit=5`
+          let response = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryText)}&countrycodes=in&limit=5`
           );
-          const data = await response.json();
-          setSuggestions(data);
+          let data = await response.json();
+
+          // Fallback: If 0 results and query contains commas, try searching the locality/city part
+          if ((!data || data.length === 0) && queryText.includes(',')) {
+            const parts = queryText.split(',').map(p => p.trim()).filter(Boolean);
+            if (parts.length > 1) {
+              const localityQuery = parts.slice(1).join(', ');
+              const fallbackRes = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(localityQuery)}&countrycodes=in&limit=4`
+              );
+              const fallbackData = await fallbackRes.json();
+              if (fallbackData && fallbackData.length > 0) {
+                data = fallbackData;
+              }
+            }
+          }
+
+          setSuggestions(data || []);
           setShowDropdown(true);
         } catch (err) {
           console.error("Error fetching locations:", err);
@@ -299,7 +352,7 @@ function RequestForm({ user, onSuccess }) {
 
     const timeoutId = setTimeout(() => {
       fetchLocations();
-    }, 600);
+    }, 500);
 
     return () => clearTimeout(timeoutId);
   }, [formData.examCenter, placeId]);
@@ -307,12 +360,15 @@ function RequestForm({ user, onSuccess }) {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    if (name === 'examCenter') setPlaceId(null);
+    if (name === 'examCenter') {
+      setPlaceId(null);
+      if (value.trim().length > 2) setShowDropdown(true);
+    }
   };
 
   const handleSuggestionClick = (suggestion) => {
     setFormData(prev => ({ ...prev, examCenter: suggestion.display_name }));
-    setPlaceId(suggestion.place_id.toString());
+    setPlaceId(suggestion.place_id ? suggestion.place_id.toString() : 'custom');
     setShowDropdown(false);
   };
 
@@ -406,73 +462,133 @@ function RequestForm({ user, onSuccess }) {
         }
       }
 
-      // 3. Extract Exam Slot
+      // 3. Extract Exam Slot (Multi-Strategy with Instruction Separation)
       let foundSlot = formData.examSlot;
-      const upperText = fullText.toUpperCase();
-      if (upperText.includes("FORENOON") || upperText.includes(" FN")) {
-        foundSlot = "Forenoon";
-      } else if (upperText.includes("AFTERNOON") || upperText.includes(" AN")) {
+      
+      // Separate timetable from bottom generic instructions to avoid false positives
+      const instructionsIndex = fullText.toLowerCase().indexOf("instructions");
+      const scheduleText = instructionsIndex !== -1 ? fullText.substring(0, instructionsIndex) : fullText;
+      const upperSchedule = scheduleText.toUpperCase();
+
+      // Clear indicators for Afternoon (Shift 2)
+      const isAfternoonTime = /0?2:00\s*(?:PM|HRS)|14:00|0?1:00\s*PM|12:45\s*PM|2\.00\s*PM|0?5:00\s*PM|17:00/i.test(scheduleText);
+      const isShift2 = /shift\s*[:-]?\s*2\b|session\s*[:-]?\s*2\b|\bshift\s*2\b/i.test(scheduleText);
+      const isAfternoonWord = /\bAFTERNOON\b|\bAN\b/.test(upperSchedule);
+
+      // Clear indicators for Forenoon (Shift 1)
+      const isForenoonTime = /0?9:00\s*(?:AM|HRS)|0?8:00\s*AM|0?7:30\s*AM|9\.00\s*AM|12:00\s*PM/i.test(scheduleText);
+      const isShift1 = /shift\s*[:-]?\s*1\b|session\s*[:-]?\s*1\b|\bshift\s*1\b/i.test(scheduleText);
+      const isForenoonWord = /\bFORENOON\b|\bFN\b/.test(upperSchedule);
+
+      if (isAfternoonTime || isShift2 || (isAfternoonWord && !isForenoonWord)) {
         foundSlot = "Afternoon";
+      } else if (isForenoonTime || isShift1 || (isForenoonWord && !isAfternoonWord)) {
+        foundSlot = "Forenoon";
+      } else if (isAfternoonWord) {
+        foundSlot = "Afternoon";
+      } else if (isForenoonWord) {
+        foundSlot = "Forenoon";
       }
 
-      // 4. Extract Center Name
+      // 4. Extract Center Name and Center Address
       let foundCenter = '';
-      const tcNameIdx = strings.findIndex(s => s.toLowerCase().includes('test centre name') || s.toLowerCase().includes('test center name'));
-      const tcAddrIdx = strings.findIndex(s => s.toLowerCase().includes('test centre address') || s.toLowerCase().includes('test center address'));
-      
-      if (tcNameIdx !== -1) {
-        // Strategy A: Check if the value is attached to the label string itself (Fragmented PDFs)
-        const labelStr = strings[tcNameIdx];
-        const lowerLabel = labelStr.toLowerCase();
-        const labelText = lowerLabel.includes('test centre name') ? 'test centre name' : 'test center name';
-        const leftover = labelStr.substring(lowerLabel.indexOf(labelText) + labelText.length).trim();
-        
-        if (leftover.length > 4 && !isLabel(leftover)) {
-          foundCenter = leftover;
+      let foundAddress = '';
+
+      // Pattern 1: Regex extraction on full text
+      const nameMatch = fullText.match(/(?:test\s*cent(?:re|er)\s*(?:code\s*&?\s*)?name|cent(?:re|er)\s*name|exam\s*cent(?:re|er)|test\s*venue|venue\s*name)\s*[:-]?\s*([-a-zA-Z0-9\s&.',()]+?)(?=(?:test\s*cent(?:re|er)\s*address|cent(?:re|er)\s*address|address|exam\s*date|roll\s*no|reporting|shift|gate|instructions|\n\n|$))/i);
+      if (nameMatch && nameMatch[1]) {
+        const candidate = nameMatch[1].trim();
+        if (candidate.length > 3 && !isLabel(candidate)) {
+          foundCenter = candidate;
         }
-        
-        // Strategy B: Sandwiched visually between Name and Address labels
-        if (!foundCenter && tcAddrIdx > tcNameIdx) {
-          const inBetween = strings.slice(tcNameIdx + 1, tcAddrIdx)
-            .map(s => s.trim())
-            .filter(s => s.length > 4 && !isLabel(s));
-          if (inBetween.length > 0) {
-            foundCenter = inBetween.join(', ');
+      }
+
+      const addrMatch = fullText.match(/(?:test\s*cent(?:re|er)\s*address|cent(?:re|er)\s*address|venue\s*address)\s*[:-]?\s*([-a-zA-Z0-9\s&.',()]+?)(?=(?:nptel\s*coordinator|instructions|candidate\s*signature|signature|reporting|shift|\n\n|$))/i);
+      if (addrMatch && addrMatch[1]) {
+        const candidateAddr = addrMatch[1].trim();
+        if (candidateAddr.length > 5 && !isLabel(candidateAddr)) {
+          foundAddress = candidateAddr;
+        }
+      }
+
+      // Pattern 2: Scan individual string items if regex missed it
+      if (!foundCenter) {
+        const tcNameIdx = strings.findIndex(s => {
+          const lower = s.toLowerCase();
+          return lower.includes('test centre name') || lower.includes('test center name') || lower.includes('centre name') || lower.includes('center name') || lower.includes('test venue');
+        });
+        const tcAddrIdx = strings.findIndex(s => {
+          const lower = s.toLowerCase();
+          return lower.includes('test centre address') || lower.includes('test center address') || lower.includes('centre address') || lower.includes('center address');
+        });
+
+        if (tcNameIdx !== -1) {
+          const labelStr = strings[tcNameIdx];
+          const colonIdx = labelStr.indexOf(':');
+          if (colonIdx !== -1 && labelStr.length > colonIdx + 4) {
+            const afterColon = labelStr.substring(colonIdx + 1).trim();
+            if (afterColon.length > 3 && !isLabel(afterColon)) {
+              foundCenter = afterColon;
+            }
           }
-        }
-        
-        // Strategy C: Forward scan, skipping known non-center items (Handles scrambled table layouts)
-        if (!foundCenter) {
-          for (let i = tcNameIdx + 1; i < strings.length; i++) {
-            const nextStr = strings[i].trim();
-            
-            // Smart filters to ensure we only grab the true Center Name
-            const isTooShort = nextStr.length <= 4;
-            const lacksLetters = !(/[a-zA-Z]{3,}/.test(nextStr));
-            const isMatchedName = foundName && nextStr.toLowerCase() === foundName.toLowerCase();
-            const isRollNo = nextStr.toUpperCase().startsWith('NOC');
-            const isTime = /^\d{2}:\d{2}\s*[ap]m$/i.test(nextStr);
-            const isDate = nextStr.includes('202'); // Basic skip for dates
-            
-            if (!isLabel(nextStr) && !isTooShort && !lacksLetters && !isMatchedName && !isRollNo && !isTime && !isDate) {
-              foundCenter = nextStr;
-              break;
+
+          if (!foundCenter && tcAddrIdx > tcNameIdx) {
+            const inBetween = strings.slice(tcNameIdx + 1, tcAddrIdx)
+              .map(s => s.trim())
+              .filter(s => s.length > 3 && !isLabel(s) && !s.startsWith(':'));
+            if (inBetween.length > 0) {
+              foundCenter = inBetween.join(', ');
+            }
+          }
+
+          if (!foundCenter) {
+            for (let i = tcNameIdx + 1; i < Math.min(tcNameIdx + 6, strings.length); i++) {
+              const str = strings[i].trim();
+              if (str.length > 3 && !isLabel(str) && !str.startsWith(':') && !str.startsWith('NOC') && !/^\d{1,2}[:.]\d{2}/.test(str)) {
+                foundCenter = str;
+                break;
+              }
             }
           }
         }
+
+        if (!foundAddress && tcAddrIdx !== -1) {
+          const inBetween = strings.slice(tcAddrIdx + 1, Math.min(tcAddrIdx + 8, strings.length))
+            .map(s => s.trim())
+            .filter(s => s.length > 3 && !isLabel(s) && !s.startsWith(':'));
+          if (inBetween.length > 0) {
+            foundAddress = inBetween.join(', ');
+          }
+        }
       }
-      
-      // Strategy D: Keyword heuristic fallback (Super robust for NPTEL)
-      // If the extracted center doesn't look like a real center name, search the entire PDF for one!
-      const centerKeywords = ['college', 'institute', 'university', 'academy', 'school', 'tcs', 'digital zone', 'engineering', 'polytechnic'];
-      const looksLikeCenter = foundCenter && centerKeywords.some(kw => foundCenter.toLowerCase().includes(kw));
-      
-      if (!looksLikeCenter) {
-        const fallbackCenter = strings.find(s => {
-           const lower = s.toLowerCase();
-           return centerKeywords.some(kw => lower.includes(kw)) && !isLabel(s) && s.length > 5 && s.length < 80;
+
+      // Pattern 3: Fallback keyword search for private centers, institutes, engineering, solutions, etc.
+      if (!foundCenter) {
+        const centerKeywords = [
+          'solutions', 'technologies', 'infotech', 'digital zone', 'tcs',
+          'college', 'institute', 'university', 'academy', 'engineering',
+          'polytechnic', 'campus', 'systems', 'complex'
+        ];
+        const keywordMatch = strings.find(s => {
+          const lower = s.toLowerCase();
+          return centerKeywords.some(kw => lower.includes(kw)) && !isLabel(s) && s.length > 5 && s.length < 80;
         });
-        if (fallbackCenter) foundCenter = fallbackCenter;
+        if (keywordMatch) foundCenter = keywordMatch;
+      }
+
+      // Clean up center name (remove leading code like "TC123 - BitByteTech")
+      if (foundCenter) {
+        foundCenter = foundCenter.replace(/^[-A-Z0-9_]+\s*[-:]\s*/i, '').trim();
+      }
+
+      // Combine center and address if both exist
+      let finalExamCenter = '';
+      if (foundCenter && foundAddress) {
+        finalExamCenter = `${foundCenter}, ${foundAddress}`;
+      } else if (foundCenter) {
+        finalExamCenter = foundCenter;
+      } else if (foundAddress) {
+        finalExamCenter = foundAddress;
       }
 
       setFormData(prev => ({
@@ -480,9 +596,9 @@ function RequestForm({ user, onSuccess }) {
         name: foundName || prev.name,
         examDate: foundDate || prev.examDate,
         examSlot: foundSlot,
-        examCenter: foundCenter || prev.examCenter
+        examCenter: finalExamCenter || prev.examCenter
       }));
-      setPlaceId(null); 
+      setPlaceId(finalExamCenter ? 'custom' : null); 
 
       if (foundName || foundCenter || foundDate) {
         setPdfSuccess("Hall ticket successfully scanned! Please verify the details below.");
@@ -542,8 +658,7 @@ function RequestForm({ user, onSuccess }) {
       const matchQuery = query(
         requestsRef,
         where('examDate', '==', formData.examDate),
-        where('examSlot', '==', formData.examSlot),
-        where('searchCenter', '==', formData.examCenter.toLowerCase().trim())
+        where('examSlot', '==', formData.examSlot)
       );
 
       const matchSnapshot = await getDocs(matchQuery);
@@ -556,6 +671,11 @@ function RequestForm({ user, onSuccess }) {
         const matchData = matchDoc.data();
         // Skip our own request
         if (matchDoc.id === newDocRef.id || matchData.userId === user.uid) return;
+
+        // Verify exam center match using robust matching
+        if (!isCenterMatch(formData.examCenter, matchData.examCenter, placeId, matchData.placeId)) {
+          return;
+        }
 
         // Create a deterministic match ID to prevent duplicates
         const sortedIds = [user.uid, matchData.userId].sort();
@@ -745,7 +865,7 @@ function RequestForm({ user, onSuccess }) {
             {placeId && (
               <span className="text-xs text-emerald-400 flex items-center gap-1 bg-emerald-400/10 px-2 py-0.5 rounded-full border border-emerald-400/20">
                 <CheckCircle2 className="w-3 h-3" />
-                Map Linked
+                {placeId === 'custom' ? 'Venue Verified' : 'Map Linked'}
               </span>
             )}
           </label>
@@ -757,8 +877,8 @@ function RequestForm({ user, onSuccess }) {
               name="examCenter"
               value={formData.examCenter}
               onChange={handleInputChange}
-              onFocus={() => { if(suggestions.length > 0) setShowDropdown(true) }}
-              placeholder="e.g., BMS College of Engineering, Bengaluru"
+              onFocus={() => { if(formData.examCenter.trim().length > 2) setShowDropdown(true); }}
+              placeholder="e.g., BitByteTech Solutions or BMS College, Bengaluru"
               className="w-full pl-10 pr-10 py-2.5 bg-[#0B0F19] border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-600 shadow-inner"
               autoComplete="off"
             />
@@ -766,20 +886,46 @@ function RequestForm({ user, onSuccess }) {
               <Loader2 className="w-4 h-4 text-indigo-400 absolute right-3 top-1/2 -translate-y-1/2 animate-spin" />
             )}
           </div>
-          <p className="text-xs text-slate-500 mt-1">Select from the dropdown to ensure exact matches with others.</p>
+          <p className="text-xs text-slate-400 mt-1">Select from suggestions or enter your venue / center name directly.</p>
           
-          {showDropdown && suggestions.length > 0 && (
-            <ul className="absolute z-50 w-full mt-1 bg-[#1F2937] border border-slate-700 rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
+          {showDropdown && formData.examCenter.trim().length > 2 && (
+            <ul className="absolute z-50 w-full mt-1 bg-[#1F2937] border border-slate-700 rounded-xl shadow-2xl max-h-64 overflow-y-auto custom-scrollbar divide-y divide-slate-800">
+              {/* Option to use custom typed text directly */}
+              <li 
+                onClick={() => {
+                  setPlaceId('custom');
+                  setShowDropdown(false);
+                }}
+                className="px-4 py-3 hover:bg-indigo-500/20 cursor-pointer transition-colors flex items-center justify-between gap-3 bg-indigo-950/30"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span className="text-sm text-slate-100 font-medium truncate">
+                    Use "{formData.examCenter}"
+                  </span>
+                </div>
+                <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  Custom Venue
+                </span>
+              </li>
+
+              {/* Map suggestions if found */}
               {suggestions.map((suggestion) => (
                 <li 
                   key={suggestion.place_id}
                   onClick={() => handleSuggestionClick(suggestion)}
-                  className="px-4 py-3 hover:bg-indigo-500/20 cursor-pointer border-b border-slate-800 last:border-0 transition-colors flex items-start gap-3"
+                  className="px-4 py-3 hover:bg-indigo-500/20 cursor-pointer transition-colors flex items-start gap-3"
                 >
                   <MapPin className="w-4 h-4 text-indigo-400 mt-1 flex-shrink-0" />
                   <span className="text-sm text-slate-200">{suggestion.display_name}</span>
                 </li>
               ))}
+
+              {suggestions.length === 0 && !isSearchingLocation && (
+                <li className="px-4 py-3 text-xs text-slate-400 bg-slate-900/60 flex items-center gap-2">
+                  <span>💡 Venue not found on map? No problem! Click <strong>"Use..."</strong> above to register with this center name.</span>
+                </li>
+              )}
             </ul>
           )}
         </div>
@@ -884,11 +1030,7 @@ function TripGroup({ request, allRequests, user }) {
       if (req.examDate !== request.examDate) return false;
       if (req.examSlot !== request.examSlot) return false;
 
-      // Try placeId first, then fall back to searchCenter
-      if (req.placeId && request.placeId && req.placeId === request.placeId) {
-        return true;
-      }
-      return req.searchCenter === request.searchCenter;
+      return isCenterMatch(request.examCenter, req.examCenter, request.placeId, req.placeId);
     });
   }, [allRequests, request, user.uid]);
 
