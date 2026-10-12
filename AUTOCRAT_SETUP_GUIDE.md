@@ -48,14 +48,19 @@ This guide explains how to connect your **Google Sheet & Autocrat** (running und
 
 ---
 
-### Step 4: Configure in the Web App
-You have two easy ways to set your Web App URL:
+### Step 4: Configure the Webhook URL
+To keep the webhook URL private and secure from normal users, it is stored as an environment variable:
 
-- **Option A (Instant in UI)**:
-  Open the deployed web app or local app, click the notification bell / gear icon (**Notification Settings**), paste your Web App URL into the **Autocrat / Google Sheets Webhook URL** field, and click **Save Preferences**.
-  
-- **Option B (Vercel / .env)**:
-  Add the environment variable in your Vercel project settings or `.env`:
+- **In Vercel (Production)**:
+  1. Go to your [Vercel Dashboard](https://vercel.com) > Select your `nptel-travel` project.
+  2. Navigate to **Settings** > **Environment Variables**.
+  3. Add a new variable:
+     - **Key**: `VITE_AUTOCRAT_WEBHOOK_URL`
+     - **Value**: `https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec`
+  4. Click **Save** and trigger a redeployment (or simply push a commit).
+
+- **In Local Development**:
+  Add it to your `.env` file:
   ```env
   VITE_AUTOCRAT_WEBHOOK_URL="https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
   ```

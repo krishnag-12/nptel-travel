@@ -9,9 +9,6 @@ export function NotificationPreferences({ db, user, onClose }) {
     inApp: true,
     marketing: false
   });
-  const [webhookUrl, setWebhookUrl] = useState(() => {
-    return (typeof window !== 'undefined' ? localStorage.getItem('nptel_autocrat_webhook_url') : '') || import.meta.env.VITE_AUTOCRAT_WEBHOOK_URL || '';
-  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -25,9 +22,6 @@ export function NotificationPreferences({ db, user, onClose }) {
         
         if (docSnap.exists()) {
           setPreferences(docSnap.data());
-          if (docSnap.data().webhookUrl && !localStorage.getItem('nptel_autocrat_webhook_url')) {
-            setWebhookUrl(docSnap.data().webhookUrl);
-          }
         }
       } catch (err) {
         console.error("Error fetching preferences:", err);
@@ -48,13 +42,9 @@ export function NotificationPreferences({ db, user, onClose }) {
     setSaving(true);
     
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('nptel_autocrat_webhook_url', webhookUrl.trim());
-      }
       const prefRef = doc(db, 'notificationPreferences', user.uid);
       await setDoc(prefRef, {
         ...preferences,
-        webhookUrl: webhookUrl.trim(),
         updatedAt: serverTimestamp()
       }, { merge: true });
       onClose();
@@ -96,7 +86,7 @@ export function NotificationPreferences({ db, user, onClose }) {
             <PreferenceItem 
               icon={<Mail className="w-5 h-5 text-indigo-400" />}
               title="Email Notifications"
-              description="Receive an email with partner details (via expertszone4@gmail.com)."
+              description="Receive an email when a matching partner is found."
               checked={preferences.email}
               onChange={() => handleToggle('email')}
             />
@@ -116,22 +106,6 @@ export function NotificationPreferences({ db, user, onClose }) {
               checked={preferences.inApp}
               onChange={() => handleToggle('inApp')}
             />
-          </div>
-
-          <div className="pt-4 border-t border-slate-800">
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1.5">
-              Autocrat / Google Sheets Webhook URL
-            </label>
-            <input 
-              type="url"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://script.google.com/macros/s/.../exec"
-              className="w-full px-3 py-2 bg-[#0B0F19] border border-slate-700 text-xs text-white rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none placeholder:text-slate-600 font-mono"
-            />
-            <p className="text-[11px] text-slate-500 mt-1">
-              Connects matches directly to Google Sheets & dispatches emails from <span className="text-indigo-400 font-medium">expertszone4@gmail.com</span>.
-            </p>
           </div>
 
           <div className="pt-4 border-t border-slate-800 flex justify-end gap-3">

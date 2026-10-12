@@ -9,15 +9,13 @@
 export async function sendMatchNotificationsToAutocrat(matches) {
   if (!matches || matches.length === 0) return { success: true, count: 0 };
 
-  const webhookUrl = 
-    import.meta.env.VITE_AUTOCRAT_WEBHOOK_URL || 
-    (typeof window !== 'undefined' ? localStorage.getItem('nptel_autocrat_webhook_url') : null);
+  const webhookUrl = import.meta.env.VITE_AUTOCRAT_WEBHOOK_URL;
 
   if (!webhookUrl) {
     console.info(
       '[Autocrat Messaging] Webhook URL not configured. ' +
-      'Matches are saved locally in Firestore. To send automated emails from expertszone4@gmail.com, ' +
-      'deploy the Google Apps Script Web App and set VITE_AUTOCRAT_WEBHOOK_URL.'
+      'Matches are saved in Firestore. To send automated emails from expertszone4@gmail.com, ' +
+      'set VITE_AUTOCRAT_WEBHOOK_URL in environment settings.'
     );
     return { success: false, reason: 'not_configured' };
   }
